@@ -1,0 +1,63 @@
+name: testing
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+defaults:
+  run:
+    working-directory: ./taoka-app
+jobs:
+  laravel-test:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        ports:
+          - 3306:3306
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: laravel_testing
+          MYSQL_USER: laravel
+          MYSQL_PASSWORD: laravel
+          MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+        options: --health-cmd "mysqladmin ping -h 127.0.0.1" --health-interval 20s --health-timeout 10s --health-retries 10
+    strategy:
+      matrix:
+        node-version: [21.x]
+    steps:
+    - uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.3'
+        extensions: mbstring, dom, fileinfo, pdo_mysql, PDO, zip
+    - uses: actions/checkout@v4
+    - name: Copy .env
+      run: php -r "file_exists('.env') || copy('.env.testing', '.env');"
+    - name: Install Dependencies
+      run: composer install -n --prefer-dist
+    - name: Generate key
+      run: php artisan key:generate
+    - name: cat .env | grep "^APP_K"
+      run: cat .env | grep "^APP_K"
+    - name: Generate APP_KEY
+      run: |
+        php artisan key:generate
+        key=$(grep APP_KEY .env)
+        echo $key >> .env.testing
+    - name: storage link
+      run: php artisan storage:link
+    - name: Directory Permissions
+      run: chmod -R 777 storage bootstrap/cache
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+    - name: npm install
+      run: npm i
+    - name: Build Assets
+      run: npm run build
+    - name: migrate
+      run: php artisan migrate
+    - name: Execute tests (Unit and Feature tests) via PHPUnit
+      run: php artisan test
